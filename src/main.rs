@@ -1,23 +1,11 @@
+mod constants;
+mod utils;
+
+use constants::*;
 use nannou::{
     prelude::*,
     rand::{thread_rng, Rng},
 };
-
-const ROWS: usize = 20;
-const COLS: usize = 20;
-
-const SCREEN_WIDTH: u32 = 1000;
-const SCREEN_HEIGHT: u32 = 1000;
-
-const SCREEN_PADDING: f32 = 100.;
-
-const SQUARE_MARGIN: f32 = 2.;
-
-const SQUARE_WIDTH: f32 =
-    ((SCREEN_WIDTH as f32 - SCREEN_PADDING * 2.) / COLS as f32) - SQUARE_MARGIN;
-
-const SQUARE_HEIGHT: f32 =
-    ((SCREEN_HEIGHT as f32 - SCREEN_PADDING * 2.) / ROWS as f32) - SQUARE_MARGIN;
 
 fn main() {
     nannou::app(model).run();
@@ -98,8 +86,8 @@ fn model(app: &App) -> Model {
         .size(SCREEN_WIDTH, SCREEN_HEIGHT)
         .resizable(false)
         .title("Bombsearcher")
-        .view(view) // The function that will be called for presenting graphics to a frame.
-        .event(event) // The function that will be called when the window receives events.
+        .view(view)
+        .event(event)
         .build()
         .unwrap();
 
@@ -109,8 +97,8 @@ fn model(app: &App) -> Model {
 
     Model {
         game_state: GameState::Playing,
-        grid: init_grid(25),
-        opened: [[true; COLS]; ROWS],
+        grid: init_grid(MINES),
+        opened: [[false; COLS]; ROWS],
         textures: vec![bomb_texture],
     }
 }
@@ -118,13 +106,44 @@ fn model(app: &App) -> Model {
 fn event(app: &App, model: &mut Model, event: WindowEvent) {
     match event {
         WindowEvent::MousePressed(MouseButton::Left) => {
-            if let Some((row, col)) = x_y_to_row_col(app.mouse.x, app.mouse.y) {
+            if let Some((row, col)) = utils::x_y_to_row_col(app.mouse.x, app.mouse.y) {
                 match model.grid[row][col] {
                     Square::Nearby(_) => {
                         model.opened[row][col] = true;
                     }
-                    Square::Empty => {}
+                    Square::Empty => {
+                        let mut stack = vec![(row, col)];
+                        let neighbours = [(0, 1), (0, -1), (1, 0), (-1, 0)];
+                        while let Some((curr_row, curr_col)) = stack.pop() {
+                            if model.opened[curr_row][curr_col]
+                                || matches!(model.grid[curr_row][curr_col], Square::Mine)
+                            {
+                                continue;
+                            }
+
+                            model.opened[curr_row][curr_col] = true;
+
+                            if matches!(model.grid[curr_row][curr_col], Square::Nearby(_)) {
+                                continue;
+                            }
+
+                            for (n_row, n_col) in neighbours {
+                                let next_row = curr_row as i32 + n_row;
+                                let next_col = curr_col as i32 + n_col;
+                                if next_row < 0
+                                    || next_row >= ROWS as i32
+                                    || next_col < 0
+                                    || next_col >= COLS as i32
+                                {
+                                    continue;
+                                }
+
+                                stack.push((next_row as usize, next_col as usize));
+                            }
+                        }
+                    }
                     Square::Mine => {
+                        model.opened[row][col] = true;
                         model.game_state = GameState::Lost;
                     }
                 };
@@ -136,37 +155,13 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
     }
 }
 
-fn row_col_to_x_y(row: usize, col: usize) -> (f32, f32) {
-    (
-        SQUARE_WIDTH / 2. + (SQUARE_WIDTH + SQUARE_MARGIN) * col as f32 - SCREEN_WIDTH as f32 / 2.
-            + SCREEN_PADDING,
-        SQUARE_HEIGHT / 2. + (SQUARE_HEIGHT + SQUARE_MARGIN) * row as f32
-            - SCREEN_HEIGHT as f32 / 2.
-            + SCREEN_PADDING,
-    )
-}
-
-fn x_y_to_row_col(x: f32, y: f32) -> Option<(usize, usize)> {
-    let col =
-        ((-x - SCREEN_WIDTH as f32 / 2. + SCREEN_PADDING) / -(SQUARE_WIDTH + SQUARE_MARGIN)) as i32;
-
-    let row = ((-y - SCREEN_HEIGHT as f32 / 2. + SCREEN_PADDING) / -(SQUARE_HEIGHT + SQUARE_MARGIN))
-        as i32;
-
-    if (0..COLS as i32).contains(&col) && (0..ROWS as i32).contains(&row) {
-        return Some((row as usize, col as usize));
-    }
-
-    None
-}
-
 fn view(app: &App, model: &Model, frame: Frame) {
     let draw = app.draw();
     draw.background().color(GRAY);
 
     for row in 0..ROWS {
         for col in 0..COLS {
-            let (x, y) = row_col_to_x_y(row, col);
+            let (x, y) = utils::row_col_to_x_y(row, col);
             if !model.opened[row][col] {
                 draw.rect()
                     .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
