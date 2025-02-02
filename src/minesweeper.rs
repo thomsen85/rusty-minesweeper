@@ -76,7 +76,13 @@ impl Minesweeper {
             }
             Square::Empty => {
                 let mut stack = vec![(row, col)];
-                let neighbours = [(0, 1), (0, -1), (1, 0), (-1, 0)];
+                let neighbours = (-1..=1)
+                    .flat_map(|a| {
+                        (-1..=1)
+                            .filter_map(move |b| if a == 0 && b == 0 { None } else { Some((a, b)) })
+                    })
+                    .collect::<Vec<_>>();
+
                 while let Some((curr_row, curr_col)) = stack.pop() {
                     if self.opened[curr_row][curr_col]
                         || matches!(self.grid[curr_row][curr_col], Square::Mine)
@@ -90,7 +96,7 @@ impl Minesweeper {
                         continue;
                     }
 
-                    for (n_row, n_col) in neighbours {
+                    for (n_row, n_col) in &neighbours {
                         let next_row = curr_row as i32 + n_row;
                         let next_col = curr_col as i32 + n_col;
                         if next_row < 0
@@ -131,5 +137,27 @@ impl Minesweeper {
         }
 
         self.marked[row][col] = !self.marked[row][col];
+    }
+
+    /// Checks if all squares except the bombs are opened
+    pub fn is_board_completed(&self) -> bool {
+        // Crating a bitmap for each. if (res == 0) than won
+        // BOMB:   0 1 0 1
+        // OPENED: 0 0 1 1
+        // RES:    1 0 0 1
+        // This is a XNOR gate or just equality of booleans;
+
+        let bomb_bit_map = self
+            .grid
+            .iter()
+            .flatten()
+            .map(|state| matches!(state, Square::Mine));
+
+        let opened_bit_map = self.opened.iter().flatten();
+
+        bomb_bit_map
+            .zip(opened_bit_map)
+            .map(|(a, b)| a == *b)
+            .all(|a| !a)
     }
 }

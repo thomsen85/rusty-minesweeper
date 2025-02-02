@@ -67,6 +67,10 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
                     return;
                 }
                 model.minesweeper.click(row, col);
+
+                if model.minesweeper.is_board_completed() {
+                    println!("Yey");
+                }
             }
         }
         WindowEvent::MousePressed(MouseButton::Right) => {
