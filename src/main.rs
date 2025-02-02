@@ -1,6 +1,8 @@
 mod constants;
 mod utils;
 
+use std::collections::HashMap;
+
 use constants::*;
 use nannou::{
     prelude::*,
@@ -29,7 +31,9 @@ struct Model {
     game_state: GameState,
     grid: [[Square; COLS]; ROWS],
     opened: [[bool; COLS]; ROWS],
-    textures: Vec<wgpu::Texture>,
+    marked: [[bool; COLS]; ROWS],
+    textures: HashMap<&'static str, wgpu::Texture>,
+    first_click: bool,
 }
 
 fn init_grid(mines: usize) -> [[Square; COLS]; ROWS] {
@@ -92,14 +96,18 @@ fn model(app: &App) -> Model {
         .unwrap();
 
     let assets = app.assets_path().unwrap();
-    let img_path = assets.join("bomb.png");
-    let bomb_texture = wgpu::Texture::from_path(app, img_path).unwrap();
+    let bomb_path = assets.join("bomb.png");
+    let flag_path = assets.join("flag.png");
+    let bomb_texture = wgpu::Texture::from_path(app, bomb_path).unwrap();
+    let flag_texture = wgpu::Texture::from_path(app, flag_path).unwrap();
 
     Model {
         game_state: GameState::Playing,
         grid: init_grid(MINES),
         opened: [[false; COLS]; ROWS],
-        textures: vec![bomb_texture],
+        marked: [[false; COLS]; ROWS],
+        textures: HashMap::from([("bomb", bomb_texture), ("flag", flag_texture)]),
+        first_click: true,
     }
 }
 
@@ -107,6 +115,16 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
     match event {
         WindowEvent::MousePressed(MouseButton::Left) => {
             if let Some((row, col)) = utils::x_y_to_row_col(app.mouse.x, app.mouse.y) {
+                // Player will always hit Empty on first click :D
+                if model.marked[row][col] {
+                    return;
+                }
+
+                while model.first_click && !matches!(model.grid[row][col], Square::Empty) {
+                    model.grid = init_grid(MINES);
+                }
+                model.first_click = false;
+
                 match model.grid[row][col] {
                     Square::Nearby(_) => {
                         model.opened[row][col] = true;
@@ -149,7 +167,14 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
                 };
             }
         }
-        WindowEvent::MousePressed(MouseButton::Right) => { // Marking
+        WindowEvent::MousePressed(MouseButton::Right) => {
+            if let Some((row, col)) = utils::x_y_to_row_col(app.mouse.x, app.mouse.y) {
+                if model.opened[row][col] {
+                    return;
+                }
+
+                model.marked[row][col] = !model.marked[row][col];
+            }
         }
         _ => {}
     }
@@ -162,25 +187,32 @@ fn view(app: &App, model: &Model, frame: Frame) {
     for row in 0..ROWS {
         for col in 0..COLS {
             let (x, y) = utils::row_col_to_x_y(row, col);
+
             if !model.opened[row][col] {
                 draw.rect()
                     .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
                     .x_y(x, y)
                     .color(WHITE);
+
+                if model.marked[row][col] {
+                    draw.texture(model.textures.get("flag").unwrap())
+                        .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
+                        .x_y(x, y);
+                }
             } else {
                 let square_state = model.grid[row][col];
+                let background_color = match square_state {
+                    Square::Empty | Square::Nearby(_) => Rgb::new(0.3, 0.3, 0.3),
+                    Square::Mine => Rgb::new(0.8, 0.3, 0.3),
+                };
+
                 draw.rect()
                     .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
                     .x_y(x, y)
-                    .color(Rgb::new(0.3, 0.3, 0.3));
+                    .color(background_color);
 
                 match square_state {
-                    Square::Empty => {
-                        // draw.rect()
-                        //     .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
-                        //     .x_y(x, y)
-                        //     .color(Rgb::new(0.5, 0.5, 0.5));
-                    }
+                    Square::Empty => {}
                     Square::Nearby(v) => {
                         draw.text(&v.to_string())
                             .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
@@ -189,7 +221,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
                             .color(WHITE);
                     }
                     Square::Mine => {
-                        draw.texture(model.textures.first().unwrap())
+                        draw.texture(model.textures.get("bomb").unwrap())
                             .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
                             .x_y(x, y);
                     }
