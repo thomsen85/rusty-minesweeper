@@ -1,11 +1,11 @@
 mod constants;
-mod minesweeper;
+mod game;
 mod utils;
 
 use std::collections::HashMap;
 
 use constants::*;
-use minesweeper::{Minesweeper, Square};
+use game::{Minesweeper, Square};
 use nannou::prelude::*;
 
 fn main() {
@@ -71,6 +71,7 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
                 if model.minesweeper.is_board_completed() {
                     println!("Yey");
                 }
+                dbg!(model.minesweeper.get_category_vec());
             }
         }
         WindowEvent::MousePressed(MouseButton::Right) => {

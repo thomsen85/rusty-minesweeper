@@ -1,7 +1,7 @@
 pub const ROWS: usize = 20;
 pub const COLS: usize = 20;
 
-pub const MINES: usize = 10;
+pub const MINES: usize = 60;
 
 pub const SCREEN_WIDTH: u32 = 1000;
 pub const SCREEN_HEIGHT: u32 = 1000;

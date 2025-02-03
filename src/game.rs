@@ -10,7 +10,7 @@ pub enum Square {
 
 pub struct Minesweeper {
     grid: [[Square; COLS]; ROWS],
-    opened: [[bool; COLS]; ROWS],
+    pub opened: [[bool; COLS]; ROWS],
     marked: [[bool; COLS]; ROWS],
 }
 
@@ -67,12 +67,11 @@ impl Minesweeper {
         }
     }
 
-    /// Will return true if a bomb was clicked
-    pub fn click(&mut self, row: usize, col: usize) -> bool {
+    /// Will return what has been clicked on if a bomb was clicked
+    pub fn click(&mut self, row: usize, col: usize) -> Square {
         match self.grid[row][col] {
             Square::Nearby(_) => {
                 self.opened[row][col] = true;
-                false
             }
             Square::Empty => {
                 let mut stack = vec![(row, col)];
@@ -110,13 +109,12 @@ impl Minesweeper {
                         stack.push((next_row as usize, next_col as usize));
                     }
                 }
-                false
             }
             Square::Mine => {
                 self.opened[row][col] = true;
-                true
             }
         }
+        self.grid[row][col]
     }
 
     pub fn square_state(&self, row: usize, col: usize) -> Square {
@@ -160,4 +158,43 @@ impl Minesweeper {
             .map(|(a, b)| a == *b)
             .all(|a| !a)
     }
+
+    /// This is meant for a structrure to be able to train on
+    pub fn get_category_vec(&self) -> StateArray {
+        // First is bitmap of opened
+        // Second is the empty squares
+        // Last is 1-8 state for squares where 0 is empty and 1-8 is nearby state
+        // Size is 10 * ROW * COL
+
+        self.opened
+            .iter()
+            .flatten()
+            .copied()
+            .chain(
+                self.grid
+                    .iter()
+                    .flatten()
+                    .map(|state| matches!(state, Square::Empty)),
+            )
+            .chain((1..=8).flat_map(|i| {
+                self.grid
+                    .iter()
+                    .flatten()
+                    .zip(self.opened.iter().flatten())
+                    .map(move |(state, &open)| {
+                        open && matches!(state, Square::Nearby(x) if *x == i)
+                    })
+            }))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap_or_else(|v: Vec<bool>| {
+                panic!(
+                    "Expected a Vec of length {} but it was {}",
+                    10 * ROWS * COLS,
+                    v.len()
+                )
+            })
+    }
 }
+
+pub type StateArray = [bool; 10 * ROWS * COLS];
