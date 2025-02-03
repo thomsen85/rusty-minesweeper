@@ -13,8 +13,8 @@ use burn::{
     tensor::{backend::AutodiffBackend, ops::FloatElem},
 };
 
-use minesweeper::constants;
-use minesweeper::game;
+use crate::constants;
+use crate::game;
 use rand::seq::IteratorRandom;
 
 #[derive(Module, Debug)]
@@ -45,8 +45,8 @@ impl ModelConfig {
         }
     }
 }
-type MyBackend = Wgpu<f32, i32>;
-type MyAutodiffBackend = Autodiff<MyBackend>;
+pub type MyBackend = Wgpu<f32, i32>;
+pub type MyAutodiffBackend = Autodiff<MyBackend>;
 
 impl<B: Backend> Model<B> {
     /// # Shapes
@@ -77,7 +77,7 @@ impl<B: Backend> Model<B> {
 pub struct TrainingConfig {
     #[config(default = 2048)]
     pub replay_mem_capacity: usize,
-    #[config(default = 1000)]
+    #[config(default = 2000)]
     pub num_episodes: usize,
 
     #[config(default = 1.0)]
@@ -200,7 +200,8 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
 
             let reward = get_reward(move_, &emulator);
 
-            let terminated = emulator.is_board_completed() || matches!(move_, game::Square::Mine);
+            let terminated =
+                emulator.is_board_completed() || matches!(move_, Some(game::Square::Mine));
             let experience = Experience {
                 state,
                 action,
@@ -298,19 +299,18 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
         .expect("Trained model should be saved successfully");
 }
 
-fn get_reward(prev_move: game::Square, emulator: &game::Minesweeper) -> f32 {
-    if matches!(prev_move, game::Square::Mine) {
-        return -20.;
+fn get_reward(prev_move: Option<game::Square>, emulator: &game::Minesweeper) -> f32 {
+    match prev_move {
+        None => return -25.,
+        Some(game::Square::Mine) => {
+            return -20.;
+        }
+        _ => {}
     }
+
     if emulator.is_board_completed() {
-        return 20.;
+        return 50.;
     }
 
     5.
-}
-
-fn main() {
-    let device = dbg!(Default::default());
-    train::<MyAutodiffBackend>(device);
-    println!("Done")
 }

@@ -1,9 +1,16 @@
+mod ai;
 mod constants;
 mod game;
 mod utils;
 
 use std::collections::HashMap;
 
+use ai::{ModelConfig, MyBackend};
+use burn::{
+    module::Module,
+    record::CompactRecorder,
+    tensor::{ElementConversion, Tensor},
+};
 use constants::*;
 use game::{Minesweeper, Square};
 use nannou::prelude::*;
@@ -24,6 +31,7 @@ struct Model {
     minesweeper: Minesweeper,
     textures: HashMap<&'static str, wgpu::Texture>,
     first_click: bool,
+    ai_model: ai::Model<MyBackend>,
 }
 
 fn model(app: &App) -> Model {
@@ -43,11 +51,24 @@ fn model(app: &App) -> Model {
     let bomb_texture = wgpu::Texture::from_path(app, bomb_path).unwrap();
     let flag_texture = wgpu::Texture::from_path(app, flag_path).unwrap();
 
+    let device = Default::default();
+    let ai_model = ModelConfig::new(
+        constants::ROWS * constants::COLS * 10,
+        512,
+        constants::ROWS * constants::COLS,
+    )
+    .init::<MyBackend>(&device);
+
+    let ai_model = ai_model
+        .load_file("model.mpk", &CompactRecorder::new(), &device)
+        .expect("Coulnd load file");
+
     Model {
         game_state: GameState::Playing,
         minesweeper: Minesweeper::new_with_mines(MINES),
         textures: HashMap::from([("bomb", bomb_texture), ("flag", flag_texture)]),
         first_click: true,
+        ai_model,
     }
 }
 
@@ -83,6 +104,22 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
                 model.minesweeper.mark(row, col);
             }
         }
+        WindowEvent::KeyPressed(Key::M) => {
+            let prediction = model
+                .ai_model
+                .forward(Tensor::from_data(
+                    model.minesweeper.get_category_vec(),
+                    &Default::default(),
+                ))
+                .argmax(0)
+                .into_scalar()
+                .elem::<i32>();
+
+            model
+                .minesweeper
+                .click(prediction as usize / COLS, prediction as usize % COLS);
+        }
+
         _ => {}
     }
 }
