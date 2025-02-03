@@ -68,10 +68,8 @@ impl Minesweeper {
     }
 
     /// Will return None if an already opend square is clicked
-    pub fn click(&mut self, row: usize, col: usize) -> Option<Square> {
-        if self.opened[row][col] {
-            return None;
-        }
+    pub fn click(&mut self, row: usize, col: usize) -> Square {
+        assert!(!self.opened[row][col]);
 
         match self.grid[row][col] {
             Square::Nearby(_) => {
@@ -118,7 +116,7 @@ impl Minesweeper {
                 self.opened[row][col] = true;
             }
         }
-        Some(self.grid[row][col])
+        self.grid[row][col]
     }
 
     pub fn square_state(&self, row: usize, col: usize) -> Square {

@@ -28,8 +28,8 @@ pub struct Model<B: Backend> {
 #[derive(Config, Debug)]
 pub struct ModelConfig {
     in_classes: usize,
-    out_classes: usize,
     hidden_size: usize,
+    out_classes: usize,
     #[config(default = "0.5")]
     dropout: f64,
 }
@@ -77,7 +77,8 @@ impl<B: Backend> Model<B> {
 pub struct TrainingConfig {
     #[config(default = 2048)]
     pub replay_mem_capacity: usize,
-    #[config(default = 2000)]
+
+    #[config(default = 1000)]
     pub num_episodes: usize,
 
     #[config(default = 1.0)]
@@ -180,12 +181,26 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
 
             let action = if rand::random::<f32>() < config.epsilon {
                 possible_actions[rand::random_range(0..possible_actions.len())] // TODO: Can use
-                                                                                // choose
             } else {
-                policy_model
+                let forward = policy_model
                     .clone()
                     .no_grad() // TODO: Enusre this is not persistant
-                    .forward(Tensor::from_data(emulator.get_category_vec(), &device))
+                    .forward(Tensor::from_data(emulator.get_category_vec(), &device));
+
+                let opened_float_map: [f32; constants::ROWS * constants::COLS] = emulator
+                    .opened
+                    .iter()
+                    .flatten()
+                    .map(|&a| if a { 0. } else { 1. })
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap();
+
+                let possibility_mask = Tensor::from_data(opened_float_map, &device);
+
+                let masked_forward = forward * possibility_mask;
+
+                masked_forward
                     .argmax(0)
                     .into_data()
                     .to_vec::<i32>()
@@ -200,8 +215,7 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
 
             let reward = get_reward(move_, &emulator);
 
-            let terminated =
-                emulator.is_board_completed() || matches!(move_, Some(game::Square::Mine));
+            let terminated = emulator.is_board_completed() || matches!(move_, game::Square::Mine);
             let experience = Experience {
                 state,
                 action,
@@ -299,18 +313,19 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
         .expect("Trained model should be saved successfully");
 }
 
-fn get_reward(prev_move: Option<game::Square>, emulator: &game::Minesweeper) -> f32 {
-    match prev_move {
-        None => return -25.,
-        Some(game::Square::Mine) => {
-            return -20.;
-        }
-        _ => {}
+fn get_reward(prev_move: game::Square, emulator: &game::Minesweeper) -> f32 {
+    if matches!(prev_move, game::Square::Mine) {
+        return -20.;
     }
-
     if emulator.is_board_completed() {
-        return 50.;
+        return 20.;
     }
 
     5.
+}
+
+fn main() {
+    let device = dbg!(Default::default());
+    train::<MyAutodiffBackend>(device);
+    println!("Done")
 }

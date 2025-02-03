@@ -105,21 +105,28 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
             }
         }
         WindowEvent::KeyPressed(Key::M) => {
-            let prediction = model
-                .ai_model
-                .forward(Tensor::from_data(
-                    model.minesweeper.get_category_vec(),
-                    &Default::default(),
-                ))
-                .argmax(0)
-                .into_scalar()
-                .elem::<i32>();
-
-            model
+            let device = Default::default();
+            let opened_float_map: [f32; constants::ROWS * constants::COLS] = model
                 .minesweeper
-                .click(prediction as usize / COLS, prediction as usize % COLS);
-        }
+                .opened
+                .iter()
+                .flatten()
+                .map(|&a| if a { 0. } else { 1. })
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
 
+            let possibility_mask = Tensor::from_data(opened_float_map, &device);
+            let forward = model
+                .ai_model
+                .forward(Tensor::from_data(model.minesweeper.get_category_vec(), &device));
+
+            let masked_forward = forward * possibility_mask;
+
+            let prediction = masked_forward.argmax(0).into_scalar().elem::<i32>() as usize;
+                 
+           model.minesweeper.click(prediction / COLS, prediction % COLS);
+        }
         _ => {}
     }
 }
