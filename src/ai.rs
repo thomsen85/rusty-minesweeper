@@ -12,6 +12,7 @@ use burn::{
     record::{CompactRecorder, Record},
     tensor::{backend::AutodiffBackend, ops::FloatElem},
 };
+use plotters::prelude::*;
 
 use crate::constants;
 use crate::game;
@@ -156,7 +157,7 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
     .init::<B>(&device);
     let mut target_model = policy_model.clone();
 
-    // let mut rewards_per_episode = Vec::new();
+    let mut rewards_per_episode = vec![0.; config.num_episodes];
     // let mut epsilon_per_episode = Vec::new();
 
     // B::seed(config.seed);
@@ -214,6 +215,7 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
             let move_ = emulator.click(action / constants::COLS, action % constants::COLS);
 
             let reward = get_reward(move_, &emulator);
+            rewards_per_episode[episode] += reward;
 
             let terminated = emulator.is_board_completed() || matches!(move_, game::Square::Mine);
             let experience = Experience {
@@ -311,6 +313,43 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
         .valid()
         .save_file(format!("model.pt"), &CompactRecorder::new())
         .expect("Trained model should be saved successfully");
+
+    plot_rewards_per_episode(rewards_per_episode).unwrap();
+}
+
+fn plot_rewards_per_episode(
+    rewards_per_episode: Vec<f32>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    const OUT_FILE_NAME: &str = "rewards_per_episode.png";
+    let root = BitMapBackend::new(OUT_FILE_NAME, (1024, 768)).into_drawing_area();
+    root.fill(&WHITE)?;
+
+    let max_reward = rewards_per_episode.iter().cloned().fold(0., f32::max);
+    let mut chart = ChartBuilder::on(&root)
+        .caption("Rewards per Episode", ("sans-serif", 50).into_font())
+        .margin(5)
+        .x_label_area_size(40)
+        .y_label_area_size(40)
+        .build_cartesian_2d(0..1000usize, 0f32..max_reward)?;
+
+    chart.configure_mesh().draw()?;
+
+    chart.draw_series(LineSeries::new(
+        rewards_per_episode
+            .iter()
+            .enumerate()
+            .map(|(i, &reward)| (i, reward)),
+        &RED,
+    ))?;
+    chart
+        .configure_series_labels()
+        .background_style(&WHITE.mix(0.8))
+        .border_style(&BLACK)
+        .draw()?;
+
+    root.present()?;
+
+    Ok(())
 }
 
 fn get_reward(prev_move: game::Square, emulator: &game::Minesweeper) -> f32 {
