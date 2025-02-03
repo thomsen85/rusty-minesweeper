@@ -2,13 +2,14 @@ use std::collections::VecDeque;
 
 use burn::{
     backend::{Autodiff, Wgpu},
+    module::AutodiffModule,
     nn::{
         loss::{CrossEntropyLoss, MseLoss},
         Dropout, DropoutConfig, Linear, LinearConfig, Relu,
     },
     optim::{AdamConfig, GradientsParams, Optimizer},
     prelude::*,
-    record::Record,
+    record::{CompactRecorder, Record},
     tensor::{backend::AutodiffBackend, ops::FloatElem},
 };
 
@@ -184,8 +185,8 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
                 policy_model
                     .clone()
                     .no_grad() // TODO: Enusre this is not persistant
-                    .forward(Tensor::from_data([emulator.get_category_vec()], &device))
-                    .argmax(1)
+                    .forward(Tensor::from_data(emulator.get_category_vec(), &device))
+                    .argmax(0)
                     .into_data()
                     .to_vec::<i32>()
                     .unwrap()[0] as usize
@@ -248,16 +249,29 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
                 current_q_list.push(current_q);
 
                 let target_q = target_model.forward(state_tensor);
-                let mut target_data = target_q.into_data().to_vec::<f32>().unwrap();
-                target_data[ex.action] = target;
-                let target_data: [f32; constants::ROWS * constants::COLS] =
-                    target_data.try_into().unwrap();
-                target_q_list.push(Tensor::from_data(target_data, &device));
+                let target_q = target_q.slice_assign(
+                    [ex.action..(ex.action + 1)],
+                    Tensor::from_data([target], &device),
+                );
+
+                // let mut target_data = target_q.into_data().to_vec::<f32>().unwrap();
+                // target_data[ex.action] = target;
+                //
+                // let target_data: [f32; constants::ROWS * constants::COLS] =
+                //     target_data.try_into().unwrap();
+
+                target_q_list.push(target_q);
             }
             let current_q_tensor: Tensor<B, 2> = Tensor::stack(current_q_list, 0);
             let target_q_tensor: Tensor<B, 2> = Tensor::stack(target_q_list, 0);
 
-            let loss = MseLoss::new().forward_no_reduction(current_q_tensor, target_q_tensor);
+            let loss =
+                MseLoss::new().forward(current_q_tensor, target_q_tensor, nn::loss::Reduction::Sum);
+            println!(
+                "[Train - Episode {} ] Loss {:.3}",
+                episode,
+                loss.clone().into_scalar(),
+            );
 
             let grads = loss.backward();
             let grads = GradientsParams::from_grads(grads, &policy_model);
@@ -277,6 +291,11 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
             target_model = policy_model.clone();
         }
     }
+
+    policy_model
+        .valid()
+        .save_file(format!("model.pt"), &CompactRecorder::new())
+        .expect("Trained model should be saved successfully");
 }
 
 fn get_reward(prev_move: game::Square, emulator: &game::Minesweeper) -> f32 {
