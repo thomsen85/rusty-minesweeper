@@ -14,8 +14,8 @@ use burn::{
 };
 use plotters::prelude::*;
 
-use crate::constants;
 use crate::game;
+use crate::{constants, game::STATE_ARRAY_LENGTH};
 use rand::seq::{IndexedRandom, IteratorRandom};
 
 #[derive(Module, Debug)]
@@ -50,9 +50,6 @@ pub type MyBackend = Wgpu<f32, i32>;
 pub type MyAutodiffBackend = Autodiff<MyBackend>;
 
 impl<B: Backend> Model<B> {
-    /// # Shapes
-    ///   - Images [batch_size, flattened_board]
-    ///   - Output [batch_size, num_classes]
     pub fn forward(&self, board_states: Tensor<B, 1>) -> Tensor<B, 1> {
         // let [batch_size, flattened_board_size] = board_states.dims();
 
@@ -79,7 +76,7 @@ pub struct TrainingConfig {
     #[config(default = 2048)]
     pub replay_mem_capacity: usize,
 
-    #[config(default = 1000)]
+    #[config(default = 5000)]
     pub num_episodes: usize,
 
     #[config(default = 1.0)]
@@ -90,13 +87,13 @@ pub struct TrainingConfig {
     #[config(default = 10)]
     pub sync_rate: usize,
 
-    #[config(default = 128)]
+    #[config(default = 64)]
     pub batch_size: usize,
     // #[config(default = 4)]
     // pub num_workers: usize,
     #[config(default = 42)]
     pub seed: u64,
-    #[config(default = 5e-6)]
+    #[config(default = 1e-4)]
     pub lr: f64,
 }
 
@@ -148,18 +145,15 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
     let mut config = TrainingConfig::new();
     let mut memory = Memory::new(config.replay_mem_capacity);
 
-    let mut policy_model = ModelConfig::new(
-        constants::ROWS * constants::COLS * 10,
-        512,
-        constants::ROWS * constants::COLS,
-    )
-    .init::<B>(&device);
+    let mut policy_model =
+        ModelConfig::new(STATE_ARRAY_LENGTH, 512, constants::ROWS * constants::COLS)
+            .init::<B>(&device);
     let mut target_model = policy_model.clone();
 
     let mut rewards_per_episode = vec![0.; config.num_episodes];
-    // let mut epsilon_per_episode = Vec::new();
+    let mut loss_per_episode = Vec::new();
 
-    // B::seed(config.seed);
+    B::seed(config.seed);
 
     let mut step_count = 0;
     for episode in 0..config.num_episodes {
@@ -182,10 +176,10 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
             } else {
                 let forward = policy_model
                     .clone()
-                    .no_grad() // TODO: Enusre this is not persistant
+                    .no_grad()
                     .forward(Tensor::from_data(emulator.get_category_vec(), &device));
 
-                let opened_float_map: [f32; constants::ROWS * constants::COLS] = emulator
+                let opened_mask: [f32; constants::ROWS * constants::COLS] = emulator
                     .opened
                     .iter()
                     .flatten()
@@ -194,21 +188,14 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
                     .try_into()
                     .unwrap();
 
-                let possibility_mask = Tensor::from_data(opened_float_map, &device);
+                let possibility_mask = Tensor::from_data(opened_mask, &device);
 
                 let masked_forward = forward * possibility_mask;
 
-                masked_forward
-                    .argmax(0)
-                    .into_data()
-                    .to_vec::<i32>()
-                    .unwrap()[0] as usize
+                masked_forward.argmax(0).into_scalar().elem::<u32>() as usize
             };
 
-            // let policy_out = policy_model.forward(emulator.get_category_vec());
-            // let target_out = target_model.forward(emulator.get_category_vec());
-
-            let state = emulator.get_category_vec();
+            let board_state = emulator.get_category_vec();
             let move_ = emulator.click(action / constants::COLS, action % constants::COLS);
 
             let reward = get_reward(move_, &emulator);
@@ -216,7 +203,7 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
 
             let terminated = emulator.is_board_completed() || matches!(move_, game::Square::Mine);
             let experience = Experience {
-                state,
+                state: board_state,
                 action,
                 reward,
                 next_state: emulator.get_category_vec(),
@@ -230,19 +217,6 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
             if terminated {
                 break;
             }
-        }
-
-        let average_timefrage = 20;
-        if episode > average_timefrage {
-            let average_reward: f32 = rewards_per_episode
-                .iter()
-                .skip(episode - average_timefrage)
-                .sum::<f32>()
-                / average_timefrage as f32;
-            println!(
-                "[Episode {}] Average Reward {:.3} Epsilon {:.3}",
-                episode, average_reward, config.epsilon
-            );
         }
 
         // TODO: Reward tacking
@@ -294,11 +268,8 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
 
             let loss =
                 MseLoss::new().forward(current_q_tensor, target_q_tensor, nn::loss::Reduction::Sum);
-            println!(
-                "[Train - Episode {} ] Loss {:.3}",
-                episode,
-                loss.clone().into_scalar(),
-            );
+
+            loss_per_episode.push(loss.clone().into_scalar().elem());
 
             let grads = loss.backward();
             let grads = GradientsParams::from_grads(grads, &policy_model);
@@ -309,6 +280,20 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
 
             config.epsilon = 0f32.max(config.epsilon - 1. / config.num_episodes as f32);
 
+            let average_timeframe = 20;
+            if episode > average_timeframe {
+                let average_reward: f32 = rewards_per_episode
+                    .iter()
+                    .skip(episode - average_timeframe)
+                    .sum::<f32>()
+                    / average_timeframe as f32;
+                println!(
+                    "[Train - Episode {} ] Loss {:.3} | Average Reward {:.3}",
+                    episode,
+                    loss.clone().into_scalar(),
+                    average_reward
+                );
+            }
             if step_count > config.sync_rate {
                 target_model = policy_model.clone();
             }
@@ -324,27 +309,26 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
         .save_file(format!("model.pt"), &CompactRecorder::new())
         .expect("Trained model should be saved successfully");
 
-    plot_rewards_per_episode(rewards_per_episode).unwrap();
+    plot_vec_with_title("rewards_per_episode".to_string(), rewards_per_episode).unwrap();
+    plot_vec_with_title("loss_per_episode".to_string(), loss_per_episode).unwrap();
 }
 
-fn plot_rewards_per_episode(
-    rewards_per_episode: Vec<f32>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Smooting of rewards over 10 episodes
+fn plot_vec_with_title(title: String, y_vals: Vec<f32>) -> Result<(), Box<dyn std::error::Error>> {
+    // Smooting of over 10 episodes
     let smoothing_radius = 10;
-    let smoothed_rewards: Vec<f32> = rewards_per_episode
+    let smoothed_rewards: Vec<f32> = y_vals
         .windows(smoothing_radius)
         .map(|window| window.iter().sum::<f32>() / smoothing_radius as f32)
         .collect();
 
-    const OUT_FILE_NAME: &str = "rewards_per_episode.png";
-    let root = BitMapBackend::new(OUT_FILE_NAME, (1024, 768)).into_drawing_area();
+    let out_file_name = &format!("{}.png", title);
+    let root = BitMapBackend::new(&out_file_name, (1024, 768)).into_drawing_area();
     root.fill(&WHITE)?;
 
     let max_reward = smoothed_rewards.iter().cloned().fold(0., f32::max);
     let min_reward = smoothed_rewards.iter().cloned().fold(0., f32::min);
     let mut chart = ChartBuilder::on(&root)
-        .caption("Rewards per Episode", ("sans-serif", 50).into_font())
+        .caption(&title, ("sans-serif", 50).into_font())
         .margin(5)
         .x_label_area_size(40)
         .y_label_area_size(40)
@@ -366,7 +350,6 @@ fn plot_rewards_per_episode(
         .draw()?;
 
     root.present()?;
-
     Ok(())
 }
 
@@ -379,10 +362,4 @@ fn get_reward(prev_move: game::Square, emulator: &game::Minesweeper) -> f32 {
     }
 
     1.
-}
-
-fn main() {
-    let device = dbg!(Default::default());
-    train::<MyAutodiffBackend>(device);
-    println!("Done")
 }
