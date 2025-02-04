@@ -16,7 +16,7 @@ use plotters::prelude::*;
 
 use crate::constants;
 use crate::game;
-use rand::seq::IteratorRandom;
+use rand::seq::{IndexedRandom, IteratorRandom};
 
 #[derive(Module, Debug)]
 pub struct Model<B: Backend> {
@@ -85,19 +85,18 @@ pub struct TrainingConfig {
     #[config(default = 1.0)]
     pub epsilon: f32,
 
-    #[config(default = 0.001)]
-    pub decay_rate: f32,
-
+    // #[config(default = 0.001)]
+    // pub decay_rate: f32,
     #[config(default = 10)]
     pub sync_rate: usize,
 
-    #[config(default = 64)]
+    #[config(default = 128)]
     pub batch_size: usize,
     // #[config(default = 4)]
     // pub num_workers: usize,
     #[config(default = 42)]
     pub seed: u64,
-    #[config(default = 1e-4)]
+    #[config(default = 5e-6)]
     pub lr: f64,
 }
 
@@ -164,8 +163,6 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
 
     let mut step_count = 0;
     for episode in 0..config.num_episodes {
-        println!("Episode {episode}");
-
         emulator = game::Minesweeper::new_with_mines(constants::MINES);
 
         loop {
@@ -233,6 +230,19 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
             if terminated {
                 break;
             }
+        }
+
+        let average_timefrage = 20;
+        if episode > average_timefrage {
+            let average_reward: f32 = rewards_per_episode
+                .iter()
+                .skip(episode - average_timefrage)
+                .sum::<f32>()
+                / average_timefrage as f32;
+            println!(
+                "[Episode {}] Average Reward {:.3} Epsilon {:.3}",
+                episode, average_reward, config.epsilon
+            );
         }
 
         // TODO: Reward tacking
@@ -320,22 +330,30 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
 fn plot_rewards_per_episode(
     rewards_per_episode: Vec<f32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Smooting of rewards over 10 episodes
+    let smoothing_radius = 10;
+    let smoothed_rewards: Vec<f32> = rewards_per_episode
+        .windows(smoothing_radius)
+        .map(|window| window.iter().sum::<f32>() / smoothing_radius as f32)
+        .collect();
+
     const OUT_FILE_NAME: &str = "rewards_per_episode.png";
     let root = BitMapBackend::new(OUT_FILE_NAME, (1024, 768)).into_drawing_area();
     root.fill(&WHITE)?;
 
-    let max_reward = rewards_per_episode.iter().cloned().fold(0., f32::max);
+    let max_reward = smoothed_rewards.iter().cloned().fold(0., f32::max);
+    let min_reward = smoothed_rewards.iter().cloned().fold(0., f32::min);
     let mut chart = ChartBuilder::on(&root)
         .caption("Rewards per Episode", ("sans-serif", 50).into_font())
         .margin(5)
         .x_label_area_size(40)
         .y_label_area_size(40)
-        .build_cartesian_2d(0..1000usize, 0f32..max_reward)?;
+        .build_cartesian_2d(0..smoothed_rewards.len(), min_reward..max_reward)?;
 
     chart.configure_mesh().draw()?;
 
     chart.draw_series(LineSeries::new(
-        rewards_per_episode
+        smoothed_rewards
             .iter()
             .enumerate()
             .map(|(i, &reward)| (i, reward)),
@@ -357,10 +375,10 @@ fn get_reward(prev_move: game::Square, emulator: &game::Minesweeper) -> f32 {
         return -20.;
     }
     if emulator.is_board_completed() {
-        return 20.;
+        return 10.;
     }
 
-    5.
+    1.
 }
 
 fn main() {
