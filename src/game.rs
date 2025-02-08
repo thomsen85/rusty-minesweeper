@@ -8,6 +8,7 @@ pub enum Square {
     Mine,
 }
 
+#[derive(Debug, Clone)]
 pub struct Minesweeper {
     grid: [[Square; COLS]; ROWS],
     pub opened: [[bool; COLS]; ROWS],
@@ -163,40 +164,42 @@ impl Minesweeper {
 
     /// This is meant for a structrure to be able to train on
     pub fn get_category_vec(&self) -> StateArray {
-        // First is bitmap of opened
-        // Second is the empty squares
-        // Last is 1-8 state for squares where 0 is empty and 1-8 is nearby state
-        // Size is 10 * ROW * COL
+        // First is bitmap of opened: 0 closed, 1 opened
+        // Second is 0-8 for each square
+        // Size is 2 * ROW * COL
 
         self.opened
             .iter()
             .flatten()
-            .copied()
+            .map(|&open| if open { 1.0 } else { 0.0 })
             .chain(
                 self.grid
                     .iter()
                     .flatten()
-                    .map(|state| matches!(state, Square::Empty)),
-            )
-            .chain((1..=8).flat_map(|i| {
-                self.grid
-                    .iter()
-                    .flatten()
                     .zip(self.opened.iter().flatten())
-                    .map(move |(state, &open)| {
-                        open && matches!(state, Square::Nearby(x) if *x == i)
-                    })
-            }))
+                    .map(|(state, &open)| {
+                        if open {
+                            match state {
+                                Square::Empty => 0.,
+                                Square::Nearby(x) => *x as f32,
+                                Square::Mine => -1., // panic!( "Wow there cowboy,read a mine on an opened square:\n {:?}", self, ),
+                            }
+                        } else {
+                            0.
+                        }
+                    }),
+            )
             .collect::<Vec<_>>()
             .try_into()
-            .unwrap_or_else(|v: Vec<bool>| {
+            .unwrap_or_else(|v: Vec<f32>| {
                 panic!(
                     "Expected a Vec of length {} but it was {}",
-                    10 * ROWS * COLS,
+                    STATE_ARRAY_LENGTH,
                     v.len()
                 )
             })
     }
 }
 
-pub type StateArray = [bool; 10 * ROWS * COLS];
+pub const STATE_ARRAY_LENGTH: usize = 2 * ROWS * COLS;
+pub type StateArray = [f32; STATE_ARRAY_LENGTH];
