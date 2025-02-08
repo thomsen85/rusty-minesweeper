@@ -12,6 +12,7 @@ use burn::{
     record::{CompactRecorder, Record},
     tensor::{backend::AutodiffBackend, ops::FloatElem},
 };
+use burn_cuda::Cuda;
 use plotters::prelude::*;
 
 use crate::constants;
@@ -46,7 +47,7 @@ impl ModelConfig {
         }
     }
 }
-pub type MyBackend = Wgpu<f32, i32>;
+pub type MyBackend = Cuda<f32, i32>;
 pub type MyAutodiffBackend = Autodiff<MyBackend>;
 
 impl<B: Backend> Model<B> {
