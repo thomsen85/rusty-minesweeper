@@ -76,7 +76,7 @@ pub struct TrainingConfig {
     #[config(default = 2048)]
     pub replay_mem_capacity: usize,
 
-    #[config(default = 5000)]
+    #[config(default = 2000)]
     pub num_episodes: usize,
 
     #[config(default = 1.0)]
@@ -196,9 +196,41 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
             };
 
             let board_state = emulator.get_category_vec();
-            let move_ = emulator.click(action / constants::COLS, action % constants::COLS);
+            let row = action / constants::COLS;
+            let col = action % constants::COLS;
 
-            let reward = get_reward(move_, &emulator);
+            let mut reward = 0.;
+
+            // Check if click was nearby opened square or not, to discourage clicking on random
+            // squares
+            let mut uninformed_click = true;
+            for row_delta in -1..=1 {
+                for col_delta in -1..=1 {
+                    if row_delta == 0 && col_delta == 0
+                        || row_delta > row as i32
+                        || col_delta > col as i32
+                    {
+                        continue;
+                    }
+
+                    if let Some(Some(opened_square)) = emulator
+                        .opened
+                        .get((row as i32 - row_delta) as usize)
+                        .map(|row| row.get((col as i32 - col_delta) as usize))
+                    {
+                        if *opened_square {
+                            uninformed_click = false;
+                        }
+                    }
+                }
+            }
+            if !uninformed_click {
+                reward = 1.;
+            }
+
+            let move_ = emulator.click(row, col);
+
+            reward += get_reward(move_, &emulator);
             rewards_per_episode[episode] += reward;
 
             let terminated = emulator.is_board_completed() || matches!(move_, game::Square::Mine);
@@ -266,8 +298,11 @@ pub fn train<B: AutodiffBackend>(device: B::Device) {
             let current_q_tensor: Tensor<B, 2> = Tensor::stack(current_q_list, 0);
             let target_q_tensor: Tensor<B, 2> = Tensor::stack(target_q_list, 0);
 
-            let loss =
-                MseLoss::new().forward(current_q_tensor, target_q_tensor, nn::loss::Reduction::Sum);
+            let loss = MseLoss::new().forward(
+                current_q_tensor,
+                target_q_tensor,
+                nn::loss::Reduction::Mean,
+            );
 
             loss_per_episode.push(loss.clone().into_scalar().elem());
 
@@ -355,10 +390,7 @@ fn plot_vec_with_title(title: String, y_vals: Vec<f32>) -> Result<(), Box<dyn st
 
 fn get_reward(prev_move: game::Square, emulator: &game::Minesweeper) -> f32 {
     if matches!(prev_move, game::Square::Mine) {
-        return -20.;
-    }
-    if emulator.is_board_completed() {
-        return 10.;
+        return -1.;
     }
 
     1.
