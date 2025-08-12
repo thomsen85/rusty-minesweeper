@@ -3169,6 +3169,7 @@ name = "minesweeper"
 version = "0.1.0"
 dependencies = [
  "burn",
+ "burn-cuda",
  "nannou",
  "plotters",
  "rand 0.9.0",
