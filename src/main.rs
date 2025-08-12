@@ -5,7 +5,7 @@ mod utils;
 
 use std::collections::HashMap;
 
-use ai::{ModelConfig, MyBackend};
+use ai::ai::{ModelConfig, MyBackend};
 use burn::{
     module::Module,
     record::CompactRecorder,
@@ -31,7 +31,7 @@ struct Model {
     minesweeper: Minesweeper,
     textures: HashMap<&'static str, wgpu::Texture>,
     first_click: bool,
-    ai_model: ai::Model<MyBackend>,
+    ai_model: ai::ai::Model<MyBackend>,
 }
 
 fn model(app: &App) -> Model {
@@ -117,15 +117,18 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
                 .unwrap();
 
             let possibility_mask = Tensor::from_data(opened_float_map, &device);
-            let forward = model
-                .ai_model
-                .forward(Tensor::from_data(model.minesweeper.get_category_vec(), &device));
+            let forward = model.ai_model.forward(Tensor::from_data(
+                model.minesweeper.get_category_vec(),
+                &device,
+            ));
 
             let masked_forward = forward * possibility_mask;
 
             let prediction = masked_forward.argmax(0).into_scalar().elem::<i32>() as usize;
-                 
-           model.minesweeper.click(prediction / COLS, prediction % COLS);
+
+            model
+                .minesweeper
+                .click(prediction / COLS, prediction % COLS);
         }
         _ => {}
     }

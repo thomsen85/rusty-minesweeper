@@ -10,9 +10,9 @@ pub enum Square {
 
 #[derive(Debug, Clone)]
 pub struct Minesweeper {
-    grid: [[Square; COLS]; ROWS],
+    pub grid: [[Square; COLS]; ROWS],
     pub opened: [[bool; COLS]; ROWS],
-    marked: [[bool; COLS]; ROWS],
+    pub marked: [[bool; COLS]; ROWS],
 }
 
 impl Minesweeper {

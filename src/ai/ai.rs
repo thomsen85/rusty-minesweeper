@@ -47,8 +47,6 @@ impl ModelConfig {
         }
     }
 }
-pub type MyBackend = Cuda<f32, i32>;
-pub type MyAutodiffBackend = Autodiff<MyBackend>;
 
 impl<B: Backend> Model<B> {
     pub fn forward(&self, board_states: Tensor<B, 1>) -> Tensor<B, 1> {
