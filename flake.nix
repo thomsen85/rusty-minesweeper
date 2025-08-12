@@ -19,8 +19,8 @@
   in {
     devShells.${system}.default = pkgs.mkShell {
       name = "cuda-env-shell";
+
       buildInputs = with pkgs; [
-        # Cuda Stuff
         gcc
         stdenv.cc.cc
         stdenv.cc.cc.lib
@@ -34,20 +34,23 @@
         cudatoolkit
         cudaPackages.cuda_cudart
 
-        # Rust Stuff
+        # Match the driver version from your system config
+        linuxPackages.nvidiaPackages.beta
+
         openssl
         pkg-config
-        (rust-bin.stable.latest.default.override
-          {
-            extensions = [
-              "rust-src"
-              "clippy"
-              "rust-analyzer"
-            ];
-          })
+        (rust-bin.stable.latest.default.override {
+          extensions = [
+            "rust-src"
+            "clippy"
+            "rust-analyzer"
+          ];
+        })
         cargo-generate
       ];
+
       LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+        pkgs.linuxPackages.nvidiaPackages.beta
         pkgs.cudatoolkit
         pkgs.cudaPackages.cuda_cudart
         pkgs.clang-tools
