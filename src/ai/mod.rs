@@ -1,3 +1,3 @@
-pub mod ai;
 pub mod batcher;
-pub mod model_v1;
+pub mod model;
+pub mod train;

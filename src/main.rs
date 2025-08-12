@@ -5,15 +5,18 @@ mod utils;
 
 use std::collections::HashMap;
 
-use ai::ai::{ModelConfig, MyBackend};
 use burn::{
+    data::dataloader::batcher::Batcher,
     module::Module,
     record::CompactRecorder,
     tensor::{ElementConversion, Tensor},
 };
+use burn_cuda::Cuda;
 use constants::*;
 use game::{Minesweeper, Square};
 use nannou::prelude::*;
+
+use crate::ai::{batcher::MinesweeperBatcher, model::ModelConfig};
 
 fn main() {
     nannou::app(model).run();
@@ -26,12 +29,14 @@ enum GameState {
     Won,
 }
 
+type MyBackend = Cuda<f32, i32>;
 struct Model {
     game_state: GameState,
     minesweeper: Minesweeper,
     textures: HashMap<&'static str, wgpu::Texture>,
     first_click: bool,
-    ai_model: ai::ai::Model<MyBackend>,
+    ai_model: ai::model::Model<MyBackend>,
+    ai_prediction: Option<Vec<f32>>,
 }
 
 fn model(app: &App) -> Model {
@@ -52,15 +57,15 @@ fn model(app: &App) -> Model {
     let flag_texture = wgpu::Texture::from_path(app, flag_path).unwrap();
 
     let device = Default::default();
-    let ai_model = ModelConfig::new(
-        constants::ROWS * constants::COLS * 10,
-        512,
-        constants::ROWS * constants::COLS,
-    )
-    .init::<MyBackend>(&device);
+    let ai_model =
+        ModelConfig::new(constants::ROWS, constants::COLS, 512).init::<MyBackend>(&device);
 
     let ai_model = ai_model
-        .load_file("model.mpk", &CompactRecorder::new(), &device)
+        .load_file(
+            "artifacts/checkpoint/model-100.mpk",
+            &CompactRecorder::new(),
+            &device,
+        )
         .expect("Coulnd load file");
 
     Model {
@@ -69,6 +74,7 @@ fn model(app: &App) -> Model {
         textures: HashMap::from([("bomb", bomb_texture), ("flag", flag_texture)]),
         first_click: true,
         ai_model,
+        ai_prediction: None,
     }
 }
 
@@ -105,30 +111,31 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
             }
         }
         WindowEvent::KeyPressed(Key::M) => {
-            let device = Default::default();
-            let opened_float_map: [f32; constants::ROWS * constants::COLS] = model
-                .minesweeper
-                .opened
-                .iter()
-                .flatten()
-                .map(|&a| if a { 0. } else { 1. })
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
+            // let device = Default::default();
+            // let opened_float_map: [f32; constants::ROWS * constants::COLS] = model
+            //     .minesweeper
+            //     .opened
+            //     .iter()
+            //     .flatten()
+            //     .map(|&a| if a { 0. } else { 1. })
+            //     .collect::<Vec<_>>()
+            //     .try_into()
+            //     .unwrap();
+            //
+            // let possibility_mask = Tensor::from_data(opened_float_map, &device);
+            let board_state = MinesweeperBatcher::default()
+                .batch(vec![model.minesweeper.clone()])
+                .boards;
 
-            let possibility_mask = Tensor::from_data(opened_float_map, &device);
-            let forward = model.ai_model.forward(Tensor::from_data(
-                model.minesweeper.get_category_vec(),
-                &device,
-            ));
-
-            let masked_forward = forward * possibility_mask;
-
-            let prediction = masked_forward.argmax(0).into_scalar().elem::<i32>() as usize;
-
-            model
-                .minesweeper
-                .click(prediction / COLS, prediction % COLS);
+            let forward = model.ai_model.forward(board_state);
+            let prediction = forward.reshape([constants::ROWS, constants::COLS]);
+            model.ai_prediction = Some(
+                prediction
+                    .to_data()
+                    .iter()
+                    .map(|val: f32| dbg!(val))
+                    .collect(),
+            );
         }
         _ => {}
     }
@@ -143,10 +150,16 @@ fn view(app: &App, model: &Model, frame: Frame) {
             let (x, y) = utils::row_col_to_x_y(row, col);
 
             if !model.minesweeper.is_square_open(row, col) {
+                let color = if let Some(prediction) = &model.ai_prediction {
+                    let v = prediction[row * constants::COLS + col].clamp(0.0, 1.0);
+                    Rgb::new(1., 1. - v, 1. - v)
+                } else {
+                    Rgb::new(1., 1., 1.)
+                };
                 draw.rect()
                     .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
                     .x_y(x, y)
-                    .color(WHITE);
+                    .color(color);
 
                 if model.minesweeper.is_square_marked(row, col) {
                     draw.texture(model.textures.get("flag").unwrap())

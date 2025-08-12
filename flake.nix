@@ -16,6 +16,21 @@
       inherit system overlays;
       config.allowUnfree = true;
     };
+        runtime-deps = with pkgs; [
+          alsa-lib
+          udev
+          xorg.libX11
+          xorg.libXcursor
+          xorg.libXrandr
+          xorg.libXi
+          xorg.libxcb
+          libxkbcommon
+          libGL
+          vulkan-loader
+          vulkan-headers
+          wayland
+          trunk
+        ];
   in {
     devShells.${system}.default = pkgs.mkShell {
       name = "cuda-env-shell";
@@ -47,14 +62,14 @@
           ];
         })
         cargo-generate
-      ];
+      ] ++ runtime-deps;
 
-      LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+      LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath ([
         pkgs.linuxPackages.nvidiaPackages.beta
         pkgs.cudatoolkit
         pkgs.cudaPackages.cuda_cudart
         pkgs.clang-tools
-      ];
+      ] ++ runtime-deps);
     };
   };
 }

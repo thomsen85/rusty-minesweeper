@@ -70,7 +70,7 @@ impl Minesweeper {
 
     /// Will return None if an already opend square is clicked
     pub fn click(&mut self, row: usize, col: usize) -> Square {
-        assert!(!self.opened[row][col]);
+        // assert!(!self.opened[row][col]);
 
         match self.grid[row][col] {
             Square::Nearby(_) => {
