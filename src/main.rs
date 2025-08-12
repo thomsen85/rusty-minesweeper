@@ -35,7 +35,7 @@ struct Model {
     minesweeper: Minesweeper,
     textures: HashMap<&'static str, wgpu::Texture>,
     first_click: bool,
-    ai_model: ai::model::Model<MyBackend>,
+    ai_model: Option<ai::model::Model<MyBackend>>,
     ai_prediction: Option<Vec<f32>>,
 }
 
@@ -66,7 +66,7 @@ fn model(app: &App) -> Model {
             &CompactRecorder::new(),
             &device,
         )
-        .expect("Coulnd load file");
+        .ok();
 
     Model {
         game_state: GameState::Playing,
@@ -98,7 +98,7 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
                 if model.minesweeper.is_board_completed() {
                     println!("Yey");
                 }
-                dbg!(model.minesweeper.get_category_vec());
+                // dbg!(model.minesweeper.get_category_vec());
             }
         }
         WindowEvent::MousePressed(MouseButton::Right) => {
@@ -111,31 +111,18 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
             }
         }
         WindowEvent::KeyPressed(Key::M) => {
-            // let device = Default::default();
-            // let opened_float_map: [f32; constants::ROWS * constants::COLS] = model
-            //     .minesweeper
-            //     .opened
-            //     .iter()
-            //     .flatten()
-            //     .map(|&a| if a { 0. } else { 1. })
-            //     .collect::<Vec<_>>()
-            //     .try_into()
-            //     .unwrap();
-            //
-            // let possibility_mask = Tensor::from_data(opened_float_map, &device);
+            if model.ai_model.is_none() {
+                println!("AI model is not loaded.");
+                return;
+            }
+            let ai_model = model.ai_model.as_ref().unwrap();
             let board_state = MinesweeperBatcher::default()
                 .batch(vec![model.minesweeper.clone()])
                 .boards;
 
-            let forward = model.ai_model.forward(board_state);
+            let forward = ai_model.forward(board_state);
             let prediction = forward.reshape([constants::ROWS, constants::COLS]);
-            model.ai_prediction = Some(
-                prediction
-                    .to_data()
-                    .iter()
-                    .map(|val: f32| dbg!(val))
-                    .collect(),
-            );
+            model.ai_prediction = Some(prediction.to_data().iter().collect());
         }
         _ => {}
     }
@@ -160,6 +147,16 @@ fn view(app: &App, model: &Model, frame: Frame) {
                     .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
                     .x_y(x, y)
                     .color(color);
+
+                if let Some(prediction) = &model.ai_prediction {
+                    let v = prediction[row * constants::COLS + col];
+                    draw.text(&format!("{:.2}", v))
+                        .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
+                        .w_h(SQUARE_WIDTH, SQUARE_HEIGHT)
+                        .x_y(x, y)
+                        .font_size(12)
+                        .color(GREEN);
+                }
 
                 if model.minesweeper.is_square_marked(row, col) {
                     draw.texture(model.textures.get("flag").unwrap())

@@ -2,18 +2,19 @@ use burn::{
     config::Config,
     data::{
         dataloader::{batcher::Batcher, DataLoaderBuilder},
-        dataset::InMemDataset,
+        dataset::{Dataset, InMemDataset},
     },
     module::Module,
     optim::AdamConfig,
     prelude::Backend,
     record::CompactRecorder,
-    tensor::backend::AutodiffBackend,
+    tensor::{backend::AutodiffBackend, Tensor},
     train::{
         metric::{AccuracyMetric, LossMetric},
         LearnerBuilder, RegressionOutput, TrainOutput, TrainStep, ValidStep,
     },
 };
+use burn_cuda::Cuda;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
@@ -48,7 +49,7 @@ pub struct TrainingConfig {
     pub batch_size: usize,
     #[config(default = 4)]
     pub num_workers: usize,
-    #[config(default = 42)]
+    #[config(default = 43)]
     pub seed: u64,
     #[config(default = 1.0e-4)]
     pub learning_rate: f64,
@@ -74,6 +75,13 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
     let train_data = InMemDataset::new(generate_data(10_000, config.seed));
     let test_data = InMemDataset::new(generate_data(1_000, config.seed));
     println!("Done generating data");
+
+    // let test_item = test_data.iter().next().unwrap();
+    // println!("{}", test_item);
+    // let board_state = MinesweeperBatcher::default().batch(vec![test_item]);
+    // print_tensor_boards(board_state.boards);
+    // print_tensor_mines(board_state.mines);
+    // todo!();
 
     let dataloader_train = DataLoaderBuilder::new(batcher.clone())
         .batch_size(config.batch_size)
@@ -115,7 +123,7 @@ fn generate_data(amount: u32, seed: u64) -> Vec<Minesweeper> {
     (0..amount)
         .map(|_| {
             let mines = rng.random_range(4..100);
-            let mut game = Minesweeper::new_with_mines(mines);
+            let mut game = Minesweeper::new_with_mines_seeded(mines, seed);
 
             while !game.is_board_completed() {
                 let row = rng.random_range(0..game.grid.len());
@@ -130,4 +138,60 @@ fn generate_data(amount: u32, seed: u64) -> Vec<Minesweeper> {
             game
         })
         .collect()
+}
+
+fn print_tensor_boards(boards: Tensor<Cuda, 4>) {
+    let [batch_size, depth, height, width] = boards.dims();
+
+    for b in 0..batch_size {
+        println!("Board {}:", b);
+
+        // Use the slice method instead of index
+        let board_2d = boards
+            .clone()
+            .slice([b..(b + 1), 1..2, 0..height, 0..width]);
+
+        dbg!(board_2d.dims());
+
+        let board_data = board_2d.into_data();
+        let board_values: Vec<f32> = board_data.into_vec().unwrap();
+
+        for h in 0..height {
+            for w in 0..width {
+                let index = h * width + w;
+                let value = board_values[index];
+
+                print!("{}", value.round() as i32);
+            }
+            println!();
+        }
+        println!();
+    }
+}
+
+fn print_tensor_mines(boards: Tensor<Cuda, 3>) {
+    let [batch_size, height, width] = boards.dims();
+
+    for b in 0..batch_size {
+        println!("Board {}:", b);
+
+        // Use the slice method instead of index
+        let board_2d = boards.clone().slice([b..(b + 1), 0..height, 0..width]);
+
+        dbg!(board_2d.dims());
+
+        let board_data = board_2d.into_data();
+        let board_values: Vec<f32> = board_data.into_vec().unwrap();
+
+        for h in 0..height {
+            for w in 0..width {
+                let index = h * width + w;
+                let value = board_values[index];
+
+                print!("{}", value.round() as i32);
+            }
+            println!();
+        }
+        println!();
+    }
 }

@@ -1,5 +1,7 @@
+use std::fmt::Display;
+
 use crate::constants::*;
-use rand::Rng;
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Square {
@@ -17,10 +19,14 @@ pub struct Minesweeper {
 
 impl Minesweeper {
     pub fn new_with_mines(mines: usize) -> Self {
+        Self::new_with_mines_seeded(mines, rand::random::<u64>())
+    }
+
+    pub fn new_with_mines_seeded(mines: usize, seed: u64) -> Self {
         assert!(mines < COLS * ROWS);
 
         let mut mines_left = mines;
-        let mut rng = rand::rng();
+        let mut rng = SmallRng::seed_from_u64(seed);
         let mut grid = [[Square::Empty; COLS]; ROWS];
 
         loop {
@@ -201,5 +207,25 @@ impl Minesweeper {
     }
 }
 
-pub const STATE_ARRAY_LENGTH: usize = 2 * ROWS * COLS;
-pub type StateArray = [f32; STATE_ARRAY_LENGTH];
+impl Display for Minesweeper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::new();
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                if self.opened[row][col] {
+                    s.push(match self.grid[row][col] {
+                        Square::Empty => ' ',
+                        Square::Nearby(n) => char::from_digit(n, 10).unwrap_or('?'),
+                        Square::Mine => '*',
+                    });
+                } else if self.marked[row][col] {
+                    s.push('F'); // Flagged
+                } else {
+                    s.push('░'); // Closed square
+                }
+            }
+            s.push('\n');
+        }
+        write!(f, "{}", s)
+    }
+}
