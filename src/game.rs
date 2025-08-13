@@ -168,43 +168,43 @@ impl Minesweeper {
             .all(|a| !a)
     }
 
-    /// This is meant for a structrure to be able to train on
-    pub fn get_category_vec(&self) -> StateArray {
-        // First is bitmap of opened: 0 closed, 1 opened
-        // Second is 0-8 for each square
-        // Size is 2 * ROW * COL
-
-        self.opened
-            .iter()
-            .flatten()
-            .map(|&open| if open { 1.0 } else { 0.0 })
-            .chain(
-                self.grid
-                    .iter()
-                    .flatten()
-                    .zip(self.opened.iter().flatten())
-                    .map(|(state, &open)| {
-                        if open {
-                            match state {
-                                Square::Empty => 0.,
-                                Square::Nearby(x) => *x as f32,
-                                Square::Mine => -1., // panic!( "Wow there cowboy,read a mine on an opened square:\n {:?}", self, ),
-                            }
-                        } else {
-                            0.
-                        }
-                    }),
-            )
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap_or_else(|v: Vec<f32>| {
-                panic!(
-                    "Expected a Vec of length {} but it was {}",
-                    STATE_ARRAY_LENGTH,
-                    v.len()
-                )
-            })
-    }
+    // /// This is meant for a structrure to be able to train on
+    // pub fn get_category_vec(&self) -> StateArray {
+    //     // First is bitmap of opened: 0 closed, 1 opened
+    //     // Second is 0-8 for each square
+    //     // Size is 2 * ROW * COL
+    //
+    //     self.opened
+    //         .iter()
+    //         .flatten()
+    //         .map(|&open| if open { 1.0 } else { 0.0 })
+    //         .chain(
+    //             self.grid
+    //                 .iter()
+    //                 .flatten()
+    //                 .zip(self.opened.iter().flatten())
+    //                 .map(|(state, &open)| {
+    //                     if open {
+    //                         match state {
+    //                             Square::Empty => 0.,
+    //                             Square::Nearby(x) => *x as f32,
+    //                             Square::Mine => -1., // panic!( "Wow there cowboy,read a mine on an opened square:\n {:?}", self, ),
+    //                         }
+    //                     } else {
+    //                         0.
+    //                     }
+    //                 }),
+    //         )
+    //         .collect::<Vec<_>>()
+    //         .try_into()
+    //         .unwrap_or_else(|v: Vec<f32>| {
+    //             panic!(
+    //                 "Expected a Vec of length {} but it was {}",
+    //                 STATE_ARRAY_LENGTH,
+    //                 v.len()
+    //             )
+    //         })
+    // }
 }
 
 impl Display for Minesweeper {

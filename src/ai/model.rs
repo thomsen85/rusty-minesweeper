@@ -2,23 +2,18 @@ use burn::{
     nn::{
         conv::{Conv2d, Conv2dConfig},
         loss::MseLoss,
-        pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig},
-        Dropout, DropoutConfig, Linear, LinearConfig, PaddingConfig2d, Relu,
+        Dropout, DropoutConfig, PaddingConfig2d, Relu,
     },
     prelude::*,
     train::RegressionOutput,
 };
 
-use crate::constants;
-
 #[derive(Module, Debug)]
 pub struct Model<B: Backend> {
     conv1: Conv2d<B>,
     conv2: Conv2d<B>,
-    pool: AdaptiveAvgPool2d,
+    conv3: Conv2d<B>,
     dropout: Dropout,
-    linear1: Linear<B>,
-    linear2: Linear<B>,
     activation: Relu,
 }
 
@@ -44,10 +39,11 @@ impl ModelConfig {
                 .with_stride([1, 1])
                 .with_padding(PaddingConfig2d::Same)
                 .init(device),
-            pool: AdaptiveAvgPool2dConfig::new([8, 8]).init(),
+            conv3: Conv2dConfig::new([4, 1], [3, 3])
+                .with_stride([1, 1])
+                .with_padding(PaddingConfig2d::Same)
+                .init(device),
             activation: Relu::new(),
-            linear1: LinearConfig::new(4 * self.width * self.height, self.hidden_size).init(device),
-            linear2: LinearConfig::new(self.hidden_size, self.width * self.height).init(device),
             dropout: DropoutConfig::new(self.dropout).init(),
         }
     }
@@ -58,32 +54,15 @@ impl<B: Backend> Model<B> {
     ///   - Boards [batch_size, depth, height, width]
     ///   - Output [batch_size, height, width] Chance of mine
     pub fn forward(&self, boards: Tensor<B, 4>) -> Tensor<B, 2> {
-        let [batch_size, depth, height, width] = boards.dims();
-
-        // TODO: Remove on release
-        assert_eq!(constants::COLS, width);
-        assert_eq!(constants::ROWS, height);
-        assert_eq!(2, depth);
-
-        // Create a channel at the second dimension.
-        // let x = boards.reshape([batch_size, height, width, depth]);
+        let [batch_size, _depth, height, width] = boards.dims();
 
         let x = self.conv1.forward(boards); // [batch_size, 4, width, height]
         let x = self.dropout.forward(x);
         let x = self.conv2.forward(x); // [batch_size, 4, width, height]
         let x = self.dropout.forward(x);
         let x = self.activation.forward(x);
-
-        // let x = self.pool.forward(x); // [batch_size, 16, 8, 8] - Im not pooling here.
-        let x = x.reshape([batch_size, 4 * height * width]);
-
-        let x = self.linear1.forward(x);
-        let x = self.dropout.forward(x);
-        let x = self.activation.forward(x);
-
-        let x = self.linear2.forward(x); // [batch_size, num_classes]
-        assert_eq!(x.dims(), [batch_size, height * width]);
-        x
+        let x = self.conv3.forward(x); // [batch_size, 1, width, height]
+        x.reshape([batch_size, height * width])
     }
 
     pub fn forward_regression(
