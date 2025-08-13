@@ -1,6 +1,6 @@
 # Minesweeper + Rust + Machine learning ?
-
 This is a rather simple machinelearning project, made a lot harder by writing everything in rust. Yep, even the machine learning part.
+<img width="1368" height="1365" alt="20250813_17h03m45s_grim" src="https://github.com/user-attachments/assets/9258e7dd-b9be-462e-83b1-5fc382c28c6f" />
 
 ## Project Background
 
